@@ -4,7 +4,11 @@ use {
         prelude::Rent,
         AccountDeserialize,
         InstructionData,
-        solana_program::instruction::{AccountMeta, Instruction},
+        solana_program::{
+            instruction::{AccountMeta, Instruction},
+            program_pack::Pack,
+            system_instruction,
+        },
         solana_program::sysvar::SysvarId,
     },
     litesvm::LiteSVM,
@@ -37,7 +41,12 @@ fn test_initialize_lock_and_mint_flow() {
             &comp_id.to_le_bytes(),
         ],
     );
-    let asset_mints = vec![Pubkey::new_unique(), Pubkey::new_unique()];
+    let asset_a = create_asset_token(&mut svm, &payer);
+    let asset_b = create_asset_token(&mut svm, &payer);
+    let asset_mints = vec![asset_a.mint, asset_b.mint];
+    let asset_token_accounts = vec![asset_a.token_account, asset_b.token_account];
+    assert_asset_token(&svm, asset_token_accounts[0], asset_mints[0], payer.pubkey());
+    assert_asset_token(&svm, asset_token_accounts[1], asset_mints[1], payer.pubkey());
     let scene_key = [7u8; SCENE_KEY_BYTES];
     let lock_records: Vec<Pubkey> = asset_mints
         .iter()
@@ -70,7 +79,9 @@ fn test_initialize_lock_and_mint_flow() {
             AccountMeta::new(composition, false),
             AccountMeta::new(payer.pubkey(), true),
             AccountMeta::new_readonly(anchor_lang::system_program::ID, false),
+            AccountMeta::new(asset_token_accounts[0], false),
             AccountMeta::new(lock_records[0], false),
+            AccountMeta::new(asset_token_accounts[1], false),
             AccountMeta::new(lock_records[1], false),
         ],
         stitchx_sid::instruction::LockAndCompose {
@@ -155,4 +166,129 @@ fn spl_ata_address(owner: &Pubkey, mint: &Pubkey) -> Pubkey {
         &associated_token_program,
     )
     .0
+}
+
+struct AssetFixture {
+    mint: Pubkey,
+    token_account: Pubkey,
+}
+
+fn create_asset_token(svm: &mut LiteSVM, payer: &Keypair) -> AssetFixture {
+    let mint = Keypair::new();
+    let token_account = Keypair::new();
+    let token_program = anchor_spl::token::ID;
+
+    send(
+        svm,
+        &anchor_lang::system_program::ID,
+        payer,
+        vec![
+            AccountMeta::new(payer.pubkey(), true),
+            AccountMeta::new(mint.pubkey(), true),
+            AccountMeta::new_readonly(anchor_lang::system_program::ID, false),
+        ],
+        system_instruction::create_account(
+            &payer.pubkey(),
+            &mint.pubkey(),
+            svm.minimum_balance_for_rent_exemption(anchor_spl::token::spl_token::state::Mint::LEN),
+            anchor_spl::token::spl_token::state::Mint::LEN as u64,
+            &token_program,
+        )
+        .data,
+        &[payer, &mint],
+    );
+
+    send(
+        svm,
+        &token_program,
+        payer,
+        vec![
+            AccountMeta::new(mint.pubkey(), false),
+        ],
+        anchor_spl::token::spl_token::instruction::initialize_mint2(
+            &token_program,
+            &mint.pubkey(),
+            &payer.pubkey(),
+            None,
+            0,
+        )
+        .unwrap()
+        .data,
+        &[payer],
+    );
+
+    send(
+        svm,
+        &anchor_lang::system_program::ID,
+        payer,
+        vec![
+            AccountMeta::new(payer.pubkey(), true),
+            AccountMeta::new(token_account.pubkey(), true),
+            AccountMeta::new_readonly(anchor_lang::system_program::ID, false),
+        ],
+        system_instruction::create_account(
+            &payer.pubkey(),
+            &token_account.pubkey(),
+            svm.minimum_balance_for_rent_exemption(anchor_spl::token::spl_token::state::Account::LEN),
+            anchor_spl::token::spl_token::state::Account::LEN as u64,
+            &token_program,
+        )
+        .data,
+        &[payer, &token_account],
+    );
+
+    send(
+        svm,
+        &token_program,
+        payer,
+        vec![
+            AccountMeta::new(token_account.pubkey(), false),
+            AccountMeta::new_readonly(mint.pubkey(), false),
+        ],
+        anchor_spl::token::spl_token::instruction::initialize_account3(
+            &token_program,
+            &token_account.pubkey(),
+            &mint.pubkey(),
+            &payer.pubkey(),
+        )
+        .unwrap()
+        .data,
+        &[payer],
+    );
+
+    send(
+        svm,
+        &token_program,
+        payer,
+        vec![
+            AccountMeta::new(mint.pubkey(), false),
+            AccountMeta::new(token_account.pubkey(), false),
+            AccountMeta::new_readonly(payer.pubkey(), true),
+        ],
+        anchor_spl::token::spl_token::instruction::mint_to(
+            &token_program,
+            &mint.pubkey(),
+            &token_account.pubkey(),
+            &payer.pubkey(),
+            &[],
+            1,
+        )
+        .unwrap()
+        .data,
+        &[payer],
+    );
+
+    AssetFixture {
+        mint: mint.pubkey(),
+        token_account: token_account.pubkey(),
+    }
+}
+
+fn assert_asset_token(svm: &LiteSVM, token_account: Pubkey, mint: Pubkey, owner: Pubkey) {
+    let account = svm.get_account(&token_account).expect("token account must exist");
+    let mut data = account.data.as_slice();
+    let parsed = anchor_spl::token::spl_token::state::Account::unpack(&mut data).unwrap();
+    assert_eq!(parsed.owner, owner);
+    assert_eq!(parsed.mint, mint);
+    assert_eq!(parsed.amount, 1);
 }
