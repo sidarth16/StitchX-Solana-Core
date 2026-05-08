@@ -425,6 +425,59 @@ pub mod stitchx_sid {
 
         Ok(())
     }
+
+    pub fn dismantle_composition<'info>(
+        ctx: Context<'info, DismantleComposition<'info>>,
+    ) -> Result<()> {
+        require!(
+            ctx.accounts.composition.owner == ctx.accounts.owner.key(),
+            ErrorCode::InvalidOwner
+        );
+        require!(
+            ctx.accounts.composition.status != CompositionStatus::Unlocked,
+            ErrorCode::InvalidState
+        );
+        require!(
+            ctx.remaining_accounts.len() == ctx.accounts.composition.asset_count as usize,
+            ErrorCode::InvalidState
+        );
+
+        let owner_info = ctx.accounts.owner.to_account_info();
+        let composition_key = ctx.accounts.composition.key();
+
+        for (asset_mint, lock_record_info) in ctx
+            .accounts
+            .composition
+            .asset_mints
+            .iter()
+            .take(ctx.accounts.composition.asset_count as usize)
+            .zip(ctx.remaining_accounts.iter())
+        {
+            let (lock_key, _) = Pubkey::find_program_address(
+                &[LOCK_RECORD_SEED, asset_mint.as_ref()],
+                ctx.program_id,
+            );
+            require_keys_eq!(lock_record_info.key(), lock_key, ErrorCode::InvalidState);
+            require!(lock_record_info.owner == ctx.program_id, ErrorCode::InvalidState);
+
+            let lock_record_data = lock_record_info.try_borrow_data()?;
+            let mut lock_record_slice: &[u8] = &lock_record_data;
+            let lock_record = LockRecord::try_deserialize(&mut lock_record_slice)?;
+            require_keys_eq!(lock_record.asset_mint, *asset_mint, ErrorCode::InvalidState);
+            require_keys_eq!(
+                lock_record.composition,
+                composition_key,
+                ErrorCode::InvalidState
+            );
+            require_keys_eq!(lock_record.owner, ctx.accounts.owner.key(), ErrorCode::InvalidState);
+            drop(lock_record_data);
+
+            close_program_account(lock_record_info, &owner_info)?;
+        }
+
+        ctx.accounts.composition.status = CompositionStatus::Unlocked;
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -551,6 +604,24 @@ pub struct UpdateComposition<'info> {
     pub owner: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct DismantleComposition<'info> {
+    #[account(
+        mut,
+        has_one = owner,
+        seeds = [
+            COMPOSITION_SEED,
+            owner.key().as_ref(),
+            &composition.comp_id.to_le_bytes()
+        ],
+        bump = composition.bump
+    )]
+    pub composition: Account<'info, Composition>,
+
+    #[account(mut)]
+    pub owner: Signer<'info>,
 }
 
 #[account]
