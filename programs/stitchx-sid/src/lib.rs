@@ -1,15 +1,16 @@
-use anchor_lang::prelude::*;
+use anchor_lang::{prelude::*, AccountSerialize};
 use anchor_lang::solana_program::program_pack::Pack;
 use anchor_spl::{
     associated_token::{self, AssociatedToken},
     token::{self, InitializeMint, MintTo, SetAuthority, Token},
 };
-use anchor_lang::solana_program::{program::invoke, system_instruction};
+use anchor_lang::solana_program::{program::{invoke, invoke_signed}, system_instruction, system_program};
 
 declare_id!("Gvob5UYJiC2EvqFW6xgyq15EEypp3YpFy2G1La6rctnC");
 
 pub const USER_STATE_SEED: &[u8] = b"user-state";
 pub const COMPOSITION_SEED: &[u8] = b"composition";
+pub const LOCK_RECORD_SEED: &[u8] = b"lock";
 pub const MAX_ASSETS: usize = 8;
 pub const SCENE_KEY_BYTES: usize = 32;
 
@@ -27,8 +28,7 @@ pub mod stitchx_sid {
         Ok(())
     }
 
-    pub fn lock_and_compose(
-        ctx: Context<LockAndCompose>,
+    pub fn lock_and_compose<'info>(ctx: Context<'info, LockAndCompose<'info>>,
         scene_key: [u8; SCENE_KEY_BYTES],
         asset_mints: Vec<Pubkey>,
     ) -> Result<()> {
@@ -40,6 +40,50 @@ pub mod stitchx_sid {
         let user_state = &mut ctx.accounts.user_state;
         let composition = &mut ctx.accounts.composition;
         let comp_id = user_state.composition_count;
+
+        require!(
+            ctx.remaining_accounts.len() == asset_mints.len(),
+            ErrorCode::AssetAlreadyLocked
+        );
+
+        for (asset_mint, lock_record_info) in asset_mints
+            .iter()
+            .zip(ctx.remaining_accounts.iter())
+        {
+            let (lock_record_key, lock_bump) = Pubkey::find_program_address(
+                &[LOCK_RECORD_SEED, asset_mint.as_ref()],
+                ctx.program_id,
+            );
+            require_keys_eq!(lock_record_info.key(), lock_record_key, ErrorCode::AssetAlreadyLocked);
+            require!(
+                lock_record_info.owner == &system_program::ID && lock_record_info.lamports() == 0,
+                ErrorCode::AssetAlreadyLocked
+            );
+
+            let create_lock_record_ix = system_instruction::create_account(
+                &ctx.accounts.authority.key(),
+                &lock_record_key,
+                Rent::get()?.minimum_balance(LockRecord::LEN),
+                LockRecord::LEN as u64,
+                ctx.program_id,
+            );
+            let authority_info = ctx.accounts.authority.to_account_info();
+            let lock_record_info = lock_record_info.clone();
+            invoke_signed(
+                &create_lock_record_ix,
+                &[authority_info, lock_record_info.clone()],
+                &[&[LOCK_RECORD_SEED, asset_mint.as_ref(), &[lock_bump]]],
+            )?;
+
+            let lock_record = LockRecord {
+                asset_mint: *asset_mint,
+                composition: composition.key(),
+                owner: ctx.accounts.authority.key(),
+            };
+            let mut data = lock_record_info.try_borrow_mut_data()?;
+            let mut writer = std::io::Cursor::new(&mut data[..]);
+            lock_record.try_serialize(&mut writer)?;
+        }
 
         composition.owner = ctx.accounts.authority.key();
         composition.comp_id = comp_id;
@@ -264,6 +308,17 @@ impl Composition {
     pub const LEN: usize = 8 + 32 + 8 + 1 + (32 * MAX_ASSETS) + SCENE_KEY_BYTES + 1 + 32 + 1;
 }
 
+#[account]
+pub struct LockRecord {
+    pub asset_mint: Pubkey,
+    pub composition: Pubkey,
+    pub owner: Pubkey,
+}
+
+impl LockRecord {
+    pub const LEN: usize = 8 + 32 + 32 + 32;
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompositionStatus {
     Locked,
@@ -278,6 +333,8 @@ pub enum ErrorCode {
     CompositionAlreadyMinted,
     #[msg("The user has exceeded the maximum composition count.")]
     CompositionCountOverflow,
+    #[msg("This asset is already locked into another composition.")]
+    AssetAlreadyLocked,
 }
 
 fn pack_asset_mints(asset_mints: &[Pubkey]) -> [Pubkey; MAX_ASSETS] {
