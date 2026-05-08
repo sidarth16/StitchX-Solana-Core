@@ -108,7 +108,6 @@ pub mod stitchx_sid {
         composition.scene_key = scene_key;
         composition.status = CompositionStatus::Locked;
         composition.composition_mint = Pubkey::default();
-        composition.version = 1;
         composition.bump = ctx.bumps.composition;
 
         // We increment after using the current count so the PDA seed and stored ID match.
@@ -302,130 +301,6 @@ pub mod stitchx_sid {
         Ok(())
     }
 
-    pub fn update_composition<'info>(
-        ctx: Context<'info, UpdateComposition<'info>>,
-        scene_key: [u8; SCENE_KEY_BYTES],
-        asset_mints: Vec<Pubkey>,
-    ) -> Result<()> {
-        require!(
-            ctx.accounts.composition.owner == ctx.accounts.owner.key(),
-            ErrorCode::InvalidOwner
-        );
-        require!(
-            ctx.accounts.composition.status != CompositionStatus::Unlocked,
-            ErrorCode::InvalidState
-        );
-        require!(
-            !asset_mints.is_empty() && asset_mints.len() <= MAX_ASSETS,
-            ErrorCode::InvalidAssetCount
-        );
-
-        let old_asset_count = ctx.accounts.composition.asset_count as usize;
-        let new_asset_count = asset_mints.len();
-        require!(
-            ctx.remaining_accounts.len() == old_asset_count + (new_asset_count * 2),
-            ErrorCode::InvalidState
-        );
-
-        let owner_info = ctx.accounts.owner.to_account_info();
-        let composition_key = ctx.accounts.composition.key();
-
-        // Close the old lock records first so the previous asset set is released before
-        // we establish the new composition state.
-        for (asset_mint, lock_record_info) in ctx
-            .accounts
-            .composition
-            .asset_mints
-            .iter()
-            .take(old_asset_count)
-            .zip(ctx.remaining_accounts.iter().take(old_asset_count))
-        {
-            let (lock_key, _) = Pubkey::find_program_address(
-                &[LOCK_RECORD_SEED, asset_mint.as_ref()],
-                ctx.program_id,
-            );
-            require_keys_eq!(lock_record_info.key(), lock_key, ErrorCode::InvalidState);
-            require!(lock_record_info.owner == ctx.program_id, ErrorCode::InvalidState);
-
-            let lock_record_data = lock_record_info.try_borrow_data()?;
-            let mut lock_record_slice: &[u8] = &lock_record_data;
-            let lock_record = LockRecord::try_deserialize(&mut lock_record_slice)?;
-            require_keys_eq!(lock_record.asset_mint, *asset_mint, ErrorCode::InvalidState);
-            require_keys_eq!(
-                lock_record.composition,
-                composition_key,
-                ErrorCode::InvalidState
-            );
-            require_keys_eq!(lock_record.owner, ctx.accounts.owner.key(), ErrorCode::InvalidState);
-            drop(lock_record_data);
-
-            close_program_account(lock_record_info, &owner_info)?;
-        }
-
-        let new_lock_accounts = &ctx.remaining_accounts[old_asset_count..];
-        for (asset_mint, remaining_pair) in asset_mints.iter().zip(new_lock_accounts.chunks_exact(2)) {
-            let token_account_info = &remaining_pair[0];
-            let lock_record_info = &remaining_pair[1];
-
-            let token_account_data = token_account_info.try_borrow_data()?;
-            let token_account =
-                anchor_spl::token::spl_token::state::Account::unpack(&token_account_data)?;
-            require!(
-                token_account.owner == ctx.accounts.owner.key()
-                    && token_account.mint == *asset_mint
-                    && token_account.amount >= 1,
-                ErrorCode::InvalidState
-            );
-
-            let (lock_record_key, lock_bump) = Pubkey::find_program_address(
-                &[LOCK_RECORD_SEED, asset_mint.as_ref()],
-                ctx.program_id,
-            );
-            require!(
-                lock_record_info.key() == lock_record_key,
-                ErrorCode::AssetAlreadyLocked
-            );
-            require!(
-                lock_record_info.owner == &system_program::ID && lock_record_info.lamports() == 0,
-                ErrorCode::InvalidState
-            );
-
-            let create_lock_record_ix = system_instruction::create_account(
-                &ctx.accounts.owner.key(),
-                &lock_record_key,
-                Rent::get()?.minimum_balance(LockRecord::LEN),
-                LockRecord::LEN as u64,
-                ctx.program_id,
-            );
-            let lock_record_info = lock_record_info.clone();
-            invoke_signed(
-                &create_lock_record_ix,
-                &[owner_info.clone(), lock_record_info.clone()],
-                &[&[LOCK_RECORD_SEED, asset_mint.as_ref(), &[lock_bump]]],
-            )?;
-
-            let lock_record = LockRecord {
-                asset_mint: *asset_mint,
-                composition: composition_key,
-                owner: ctx.accounts.owner.key(),
-            };
-            let mut data = lock_record_info.try_borrow_mut_data()?;
-            let mut writer = std::io::Cursor::new(&mut data[..]);
-            lock_record.try_serialize(&mut writer)?;
-        }
-
-        let composition = &mut ctx.accounts.composition;
-        composition.asset_count = asset_mints.len() as u8;
-        composition.asset_mints = pack_asset_mints(&asset_mints);
-        composition.scene_key = scene_key;
-        composition.version = composition
-            .version
-            .checked_add(1)
-            .ok_or(ErrorCode::InvalidState)?;
-
-        Ok(())
-    }
-
     pub fn dismantle_composition<'info>(
         ctx: Context<'info, DismantleComposition<'info>>,
     ) -> Result<()> {
@@ -587,26 +462,6 @@ pub struct BurnAndUnlock<'info> {
 }
 
 #[derive(Accounts)]
-pub struct UpdateComposition<'info> {
-    #[account(
-        mut,
-        has_one = owner,
-        seeds = [
-            COMPOSITION_SEED,
-            owner.key().as_ref(),
-            &composition.comp_id.to_le_bytes()
-        ],
-        bump = composition.bump
-    )]
-    pub composition: Account<'info, Composition>,
-
-    #[account(mut)]
-    pub owner: Signer<'info>,
-
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
 pub struct DismantleComposition<'info> {
     #[account(
         mut,
@@ -646,12 +501,11 @@ pub struct Composition {
     pub status: CompositionStatus,
     pub composition_mint: Pubkey,
     pub bump: u8,
-    pub version: u64,
 }
 
 impl Composition {
     // Fixed-size layout keeps this first MVP simple and easy to reason about.
-    pub const LEN: usize = 8 + 32 + 8 + 1 + (32 * MAX_ASSETS) + SCENE_KEY_BYTES + 1 + 32 + 1 + 8;
+    pub const LEN: usize = 8 + 32 + 8 + 1 + (32 * MAX_ASSETS) + SCENE_KEY_BYTES + 1 + 32 + 1;
 }
 
 #[account]
