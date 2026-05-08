@@ -53,6 +53,7 @@ pub mod stitchx_sid {
             let token_account_info = &remaining_pair[0];
             let lock_record_info = &remaining_pair[1];
 
+            require_keys_eq!(*token_account_info.owner, token::ID, ErrorCode::InvalidState);
             let token_account_data = token_account_info.try_borrow_data()?;
             let token_account =
                 anchor_spl::token::spl_token::state::Account::unpack(&token_account_data)?;
@@ -233,6 +234,11 @@ pub mod stitchx_sid {
             ErrorCode::InvalidOwner
         );
         require_keys_eq!(
+            *ctx.accounts.composition_mint.owner,
+            token::ID,
+            ErrorCode::InvalidOwner
+        );
+        require_keys_eq!(
             get_associated_token_address(&ctx.accounts.owner.key(), &ctx.accounts.composition_mint.key()),
             ctx.accounts.owner_ata.key(),
             ErrorCode::InvalidOwner
@@ -241,6 +247,7 @@ pub mod stitchx_sid {
         let composition_mint = ctx.accounts.composition.composition_mint;
         let owner_info = ctx.accounts.owner.to_account_info();
         let owner_ata_info = ctx.accounts.owner_ata.to_account_info();
+        require_keys_eq!(*owner_ata_info.owner, token::ID, ErrorCode::InvalidOwner);
         let owner_ata_data = owner_ata_info.try_borrow_data()?;
         let token_account = anchor_spl::token::spl_token::state::Account::unpack(&owner_ata_data)?;
         require!(
