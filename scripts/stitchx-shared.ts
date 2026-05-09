@@ -1,3 +1,8 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+import bs58 from "bs58";
+
 if (typeof globalThis.structuredClone !== "function") {
   globalThis.structuredClone = (value: unknown) => JSON.parse(JSON.stringify(value));
 }
@@ -56,6 +61,40 @@ export function sceneKey(seed: number) {
 export function shortKey(pubkey: anchor.web3.PublicKey) {
   const base58 = pubkey.toBase58();
   return `${base58.slice(0, 4)}…${base58.slice(-4)}`;
+}
+
+export function expandHome(input: string) {
+  if (!input.startsWith("~")) {
+    return input;
+  }
+
+  const home = process.env.HOME ?? process.env.USERPROFILE;
+  if (!home) {
+    return input;
+  }
+
+  return path.join(home, input.slice(1));
+}
+
+export function loadKeypair(walletPath: string) {
+  const raw = fs.readFileSync(walletPath, "utf8");
+  const secretKey = Uint8Array.from(JSON.parse(raw) as number[]);
+  return anchor.web3.Keypair.fromSecretKey(secretKey);
+}
+
+export function loadKeypairFromSecretKey(secretKeyValue: string) {
+  const trimmed = secretKeyValue.trim();
+  if (!trimmed) {
+    throw new Error("Wallet secret key is empty.");
+  }
+
+  if (trimmed.startsWith("[")) {
+    const secretKey = Uint8Array.from(JSON.parse(trimmed) as number[]);
+    return anchor.web3.Keypair.fromSecretKey(secretKey);
+  }
+
+  const secretKey = bs58.decode(trimmed);
+  return anchor.web3.Keypair.fromSecretKey(secretKey);
 }
 
 export function logStep(title: string, details?: Record<string, string | number | boolean>) {
