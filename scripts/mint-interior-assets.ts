@@ -11,9 +11,9 @@ async function main() {
       process.env.ANCHOR_WALLET ??
       "~/.config/solana/id.json",
     recipientAddress: process.env.RECIPIENT_WALLET ?? process.env.MINT_TO_WALLET,
-    assetRoot: process.env.ASSET_ROOT ?? "app/public/assets/avatar/base",
-    folderFilter: ["base"],
-    batchLabel: "StitchX base NFT mint",
+    assetRoot: process.env.ASSET_ROOT ?? "app/public/assets/interior",
+    folderFilter: null,
+    batchLabel: "StitchX interior NFT mint",
   });
 }
 
