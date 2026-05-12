@@ -515,23 +515,12 @@ scripts/
   mint-demo-assets.ts   ← devnet asset minting
   mint-interior-assets.ts
 
-codex-context.md    ← protocol memory + architecture notes
 README.md           ← this file
 ```
 
 ---
 
-## Technical Invariants
 
-These rules are load-bearing. They should not change without explicit protocol migration:
-
-- `Composition` is canonical — never edited in place after creation
-- NFTs are snapshots only — they do not control protocol state
-- `LockRecord` PDA seed is `["lock", asset_mint]` — changing this breaks all existing locks
-- `Composition` PDA seed is `["composition", authority, comp_id_le_bytes]` — must stay stable
-- Remaining account ordering in `lock_and_compose` and unlock flows must stay `tokenAccount, lockRecord` pairs in asset mint order
-- `scene_key` is metadata stored on `Composition` — it is not a PDA seed
-- A composition has no `update_composition` instruction — immutability is by design, not omission
 
 ---
 
