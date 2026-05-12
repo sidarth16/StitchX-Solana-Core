@@ -44,7 +44,7 @@ The NFT is intentionally secondary — a verifiable snapshot export. The protoco
 
 ## UI Preview
 
-![StitchX Stitch Editor](assets/screenshot-editor.png)
+![StitchX Stitch Editor](assets/screenshot-editor.gif)
 
 > Full walkthrough in the [demo video](https://www.youtube.com/watch?v=-edAscwarc8).
 
