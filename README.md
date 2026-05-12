@@ -1,10 +1,10 @@
 # StitchX — Composable Asset Protocol on Solana
 
-> **Built for the Colosseum Solana Hackathon**
-
 > **Lock multiple NFTs into a single immutable on-chain Composition. Mint an optional snapshot NFT. Recover assets cleanly when you're done.**
 
 StitchX is a fully on-chain compositing protocol built with Anchor on Solana. It lets users lock multiple NFT assets into a canonical `Composition` account, enforce uniqueness through PDA-based `LockRecord` accounts, optionally export a verified snapshot NFT, and recover all assets via unlock or dismantle flows — all without any off-chain intermediary.
+
+<!-- > **Built for the Colosseum Solana Hackathon** -->
 
 ---
 
@@ -14,8 +14,8 @@ StitchX is a fully on-chain compositing protocol built with Anchor on Solana. It
 |---|---|
 | 🎬 **Demo Video** | [Watch on YouTube](https://www.youtube.com/watch?v=-edAscwarc8) |
 | 🎤 **Founder Pitch** | [Watch on YouTube](https://www.youtube.com/watch?v=FJAG5AIXuDY) |
-| 🔗 **Program ID** | `Gvob5UYJiC2EvqFW6xgyq15EEypp3YpFy2G1La6rctnC` (Solana Devnet) |
-
+| 🔗 **Program ID** | [Gvob5UYJiC2EvqFW6xgyq15EEypp3YpFy2G1La6rctnC](https://explorer.solana.com/address/Gvob5UYJiC2EvqFW6xgyq15EEypp3YpFy2G1La6rctnC?cluster=devnet) (Solana Devnet) |
+| 🖥️ **Frontend Repo** | [sidarth16/StitchX-Solana-Frontend](https://github.com/sidarth16/StitchX-Solana-Frontend) |
 ---
 
 ## Architecture Overview
