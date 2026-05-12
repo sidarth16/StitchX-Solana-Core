@@ -1,6 +1,6 @@
 # StitchX — Composable Asset Protocol on Solana
 
-> **Lock multiple NFTs into a single immutable on-chain Composition. Mint an optional snapshot NFT. Recover assets cleanly when you're done.**
+> **Configure multiple NFTs into a single on-chain Composition. Snapshot it as a verified NFT. Recover your assets anytime.**
 
 StitchX is a fully on-chain compositing protocol built with Anchor on Solana. It lets users lock multiple NFT assets into a canonical `Composition` account, enforce uniqueness through PDA-based `LockRecord` accounts, optionally export a verified snapshot NFT, and recover all assets via unlock or dismantle flows — all without any off-chain intermediary.
 
