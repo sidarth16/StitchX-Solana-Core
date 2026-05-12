@@ -5,6 +5,7 @@
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
     "mint:demo-assets": "NO_DNA=1 npx ts-node --transpile-only scripts/mint-demo-assets.ts",
     "mint:base-assets": "NO_DNA=1 npx ts-node --transpile-only scripts/mint-base-assets.ts",
+    "mint:interior-assets": "NO_DNA=1 npx ts-node --transpile-only scripts/mint-interior-assets.ts",
     "lock:demo-composition": "NO_DNA=1 npx ts-node --transpile-only scripts/lock-owned-demo-assets.ts"
   },
   "dependencies": {
